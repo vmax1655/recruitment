@@ -24,8 +24,8 @@ class AiProviderClient
 
     public function __construct()
     {
-        $this->model = config('ai.openrouter.model');
-        $this->baseUrl = rtrim(config('ai.openrouter.base_url', 'https://openrouter.ai/api/v1'), '/');
+        $this->model = (string) (config('ai.openrouter.model') ?: 'openai/gpt-4o-mini');
+        $this->baseUrl = rtrim((string) (config('ai.openrouter.base_url') ?: 'https://openrouter.ai/api/v1'), '/');
         $this->apiKey = config('ai.openrouter.api_key');
     }
 

@@ -74,135 +74,200 @@ class ResumeParserService
      */
     public function applyToProfile(Applicant $applicant, array $parsedData, ?string $resumePath = null): array
     {
-        return DB::transaction(function () use ($applicant, $parsedData, $resumePath) {
-            $personal = $parsedData['personal'] ?? [];
-            $skills = $parsedData['skills'] ?? [];
-            $experiences = $parsedData['experiences'] ?? [];
-            $educationList = $parsedData['education'] ?? [];
-            $certifications = $parsedData['certifications'] ?? [];
+        $personal = is_array($parsedData['personal'] ?? null) ? $parsedData['personal'] : [];
+        $skills = is_array($parsedData['skills'] ?? null) ? $parsedData['skills'] : [];
+        $experiences = is_array($parsedData['experiences'] ?? null) ? $parsedData['experiences'] : [];
+        $educationList = is_array($parsedData['education'] ?? null) ? $parsedData['education'] : [];
+        $certifications = is_array($parsedData['certifications'] ?? null) ? $parsedData['certifications'] : [];
 
-            // 1. Update Personal & Contact Info
-            $updateData = [];
-            if (!empty($personal['first_name'])) $updateData['first_name'] = $personal['first_name'];
-            if (!empty($personal['last_name'])) $updateData['last_name'] = $personal['last_name'];
-            if (!empty($personal['phone'])) $updateData['phone'] = $personal['phone'];
-            if (!empty($personal['city'])) $updateData['city'] = $personal['city'];
-            if (!empty($personal['state'])) $updateData['state'] = $personal['state'];
-            if (!empty($personal['country'])) $updateData['country'] = $personal['country'];
-            if (!empty($personal['summary'])) $updateData['summary'] = $personal['summary'];
-            if (!empty($personal['linkedin_url'])) $updateData['linkedin_url'] = $personal['linkedin_url'];
-            if (!empty($personal['portfolio_url'])) $updateData['portfolio_url'] = $personal['portfolio_url'];
-            if ($resumePath) $updateData['resume_path'] = $resumePath;
+        // 1. Update Personal & Contact Info
+        $updateData = [];
+        if (!empty($personal['first_name'])) $updateData['first_name'] = substr(trim($personal['first_name']), 0, 255);
+        if (!empty($personal['last_name'])) $updateData['last_name'] = substr(trim($personal['last_name']), 0, 255);
+        if (!empty($personal['phone'])) $updateData['phone'] = substr(trim($personal['phone']), 0, 50);
+        if (!empty($personal['city'])) $updateData['city'] = substr(trim($personal['city']), 0, 255);
+        if (!empty($personal['state'])) $updateData['state'] = substr(trim($personal['state']), 0, 255);
+        if (!empty($personal['country'])) $updateData['country'] = substr(trim($personal['country']), 0, 255);
+        if (!empty($personal['summary'])) $updateData['summary'] = trim($personal['summary']);
+        if (!empty($personal['linkedin_url'])) $updateData['linkedin_url'] = substr(trim($personal['linkedin_url']), 0, 255);
+        if (!empty($personal['portfolio_url'])) $updateData['portfolio_url'] = substr(trim($personal['portfolio_url']), 0, 255);
+        if ($resumePath) $updateData['resume_path'] = $resumePath;
 
-            $applicant->update($updateData);
+        if (!empty($updateData)) {
+            try {
+                $applicant->update($updateData);
+            } catch (\Throwable $e) {
+                Log::warning('Failed to update applicant personal info during resume parse', ['error' => $e->getMessage()]);
+            }
+        }
 
-            // Also update linked user's name if applicable
-            if ($applicant->user && (!empty($personal['first_name']) || !empty($personal['last_name']))) {
-                $fullName = trim(($personal['first_name'] ?? $applicant->first_name) . ' ' . ($personal['last_name'] ?? $applicant->last_name));
-                if (!empty($fullName)) {
-                    $applicant->user->update(['name' => $fullName]);
+        // Also update linked user's name if applicable
+        if ($applicant->user && (!empty($personal['first_name']) || !empty($personal['last_name']))) {
+            $fullName = trim(($personal['first_name'] ?? $applicant->first_name) . ' ' . ($personal['last_name'] ?? $applicant->last_name));
+            if (!empty($fullName)) {
+                try {
+                    $applicant->user->update(['name' => substr($fullName, 0, 255)]);
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to update applicant linked user name', ['error' => $e->getMessage()]);
                 }
             }
+        }
 
-            // 2. Insert Skills (avoid duplicates)
-            $addedSkillsCount = 0;
+        // 2. Insert Skills (avoid duplicates)
+        $addedSkillsCount = 0;
+        try {
             $existingSkills = $applicant->skills()->pluck('skill')->map(fn($s) => strtolower(trim($s)))->toArray();
+        } catch (\Throwable $e) {
+            $existingSkills = [];
+        }
 
-            foreach ($skills as $skillItem) {
-                $skillName = is_array($skillItem) ? ($skillItem['skill'] ?? '') : $skillItem;
-                $skillName = trim($skillName);
-                if (empty($skillName)) continue;
+        foreach ($skills as $skillItem) {
+            $skillName = is_array($skillItem) ? ($skillItem['skill'] ?? '') : $skillItem;
+            $skillName = trim((string)$skillName);
+            if (empty($skillName)) continue;
 
-                if (!in_array(strtolower($skillName), $existingSkills)) {
+            if (!in_array(strtolower($skillName), $existingSkills, true)) {
+                $rawProf = is_array($skillItem) ? ($skillItem['proficiency'] ?? 'intermediate') : 'intermediate';
+                $prof = strtolower(trim((string)$rawProf));
+                $validProf = in_array($prof, ['beginner', 'intermediate', 'advanced', 'expert'], true) ? $prof : 'intermediate';
+
+                $rawYoe = is_array($skillItem) ? ($skillItem['years_of_experience'] ?? 0) : 0;
+                $yoe = is_numeric($rawYoe) ? max(0, (int)$rawYoe) : 0;
+
+                try {
                     $applicant->skills()->create([
-                        'skill' => $skillName,
-                        'proficiency' => is_array($skillItem) ? ($skillItem['proficiency'] ?? 'Intermediate') : 'Intermediate',
-                        'years_of_experience' => is_array($skillItem) ? ($skillItem['years_of_experience'] ?? null) : null,
+                        'skill' => substr($skillName, 0, 255),
+                        'proficiency' => $validProf,
+                        'years_of_experience' => $yoe,
                     ]);
                     $existingSkills[] = strtolower($skillName);
                     $addedSkillsCount++;
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to insert resume skill', ['skill' => $skillName, 'error' => $e->getMessage()]);
                 }
             }
+        }
 
-            // 3. Insert Work Experiences
-            $addedExpCount = 0;
-            foreach ($experiences as $exp) {
-                if (empty($exp['company']) || empty($exp['job_title'])) continue;
+        // 3. Insert Work Experiences
+        $addedExpCount = 0;
+        foreach ($experiences as $exp) {
+            if (!is_array($exp)) continue;
+            $company = trim((string)($exp['company'] ?? ''));
+            $jobTitle = trim((string)($exp['job_title'] ?? ''));
+            if (empty($company) || empty($jobTitle)) continue;
 
+            $companySafe = substr($company, 0, 255);
+            $jobTitleSafe = substr($jobTitle, 0, 255);
+            $locationSafe = !empty($exp['location']) ? substr(trim((string)$exp['location']), 0, 255) : null;
+
+            try {
                 $exists = $applicant->experiences()
-                    ->where('company', $exp['company'])
-                    ->where('job_title', $exp['job_title'])
+                    ->where('company', $companySafe)
+                    ->where('job_title', $jobTitleSafe)
                     ->exists();
 
                 if (!$exists) {
                     $applicant->experiences()->create([
-                        'company' => $exp['company'],
-                        'job_title' => $exp['job_title'],
-                        'location' => $exp['location'] ?? null,
+                        'company' => $companySafe,
+                        'job_title' => $jobTitleSafe,
+                        'location' => $locationSafe,
                         'start_date' => $this->parseDate($exp['start_date'] ?? null),
                         'end_date' => !empty($exp['is_current']) ? null : $this->parseDate($exp['end_date'] ?? null),
                         'is_current' => !empty($exp['is_current']),
-                        'description' => $exp['description'] ?? null,
+                        'description' => !empty($exp['description']) ? trim((string)$exp['description']) : null,
                     ]);
                     $addedExpCount++;
                 }
+            } catch (\Throwable $e) {
+                Log::warning('Failed to insert resume experience', ['error' => $e->getMessage()]);
+            }
+        }
+
+        // 4. Insert Education
+        $addedEduCount = 0;
+        foreach ($educationList as $edu) {
+            if (!is_array($edu)) continue;
+            $institution = trim((string)($edu['institution'] ?? ''));
+            $degree = trim((string)($edu['degree'] ?? ''));
+            if (empty($institution) && empty($degree)) continue;
+
+            $institutionSafe = substr($institution ?: 'Institution', 0, 255);
+            $degreeSafe = substr($degree ?: 'Degree', 0, 255);
+            $fieldOfStudySafe = !empty($edu['field_of_study']) ? substr(trim((string)$edu['field_of_study']), 0, 255) : null;
+            $honorsSafe = !empty($edu['honors']) ? substr(trim((string)$edu['honors']), 0, 255) : null;
+
+            $gpa = null;
+            if (isset($edu['gpa']) && is_numeric($edu['gpa'])) {
+                $floatGpa = (float)$edu['gpa'];
+                if ($floatGpa >= 0 && $floatGpa <= 9.99) {
+                    $gpa = round($floatGpa, 2);
+                }
             }
 
-            // 4. Insert Education
-            $addedEduCount = 0;
-            foreach ($educationList as $edu) {
-                if (empty($edu['institution']) || empty($edu['degree'])) continue;
-
+            try {
                 $exists = $applicant->education()
-                    ->where('institution', $edu['institution'])
-                    ->where('degree', $edu['degree'])
+                    ->where('institution', $institutionSafe)
+                    ->where('degree', $degreeSafe)
                     ->exists();
 
                 if (!$exists) {
                     $applicant->education()->create([
-                        'institution' => $edu['institution'],
-                        'degree' => $edu['degree'],
-                        'field_of_study' => $edu['field_of_study'] ?? null,
+                        'institution' => $institutionSafe,
+                        'degree' => $degreeSafe,
+                        'field_of_study' => $fieldOfStudySafe,
                         'start_date' => $this->parseDate($edu['start_date'] ?? null),
                         'end_date' => $this->parseDate($edu['end_date'] ?? null),
-                        'gpa' => isset($edu['gpa']) && is_numeric($edu['gpa']) ? (float)$edu['gpa'] : null,
-                        'honors' => $edu['honors'] ?? null,
-                        'description' => $edu['description'] ?? null,
+                        'gpa' => $gpa,
+                        'honors' => $honorsSafe,
+                        'description' => !empty($edu['description']) ? trim((string)$edu['description']) : null,
                     ]);
                     $addedEduCount++;
                 }
+            } catch (\Throwable $e) {
+                Log::warning('Failed to insert resume education', ['error' => $e->getMessage()]);
             }
+        }
 
-            // 5. Insert Certifications
-            $addedCertCount = 0;
-            foreach ($certifications as $cert) {
-                if (empty($cert['name'])) continue;
+        // 5. Insert Certifications
+        $addedCertCount = 0;
+        foreach ($certifications as $cert) {
+            if (!is_array($cert)) continue;
+            $name = trim((string)($cert['name'] ?? ''));
+            if (empty($name)) continue;
 
+            $nameSafe = substr($name, 0, 255);
+            $issuerSafe = substr(trim((string)($cert['issuing_organization'] ?? 'Accredited Organization')), 0, 255);
+            $credentialIdSafe = !empty($cert['credential_id']) ? substr(trim((string)$cert['credential_id']), 0, 255) : null;
+            $credentialUrlSafe = !empty($cert['credential_url']) ? substr(trim((string)$cert['credential_url']), 0, 255) : null;
+
+            try {
                 $exists = $applicant->certifications()
-                    ->where('name', $cert['name'])
+                    ->where('name', $nameSafe)
                     ->exists();
 
                 if (!$exists) {
                     $applicant->certifications()->create([
-                        'name' => $cert['name'],
-                        'issuing_organization' => $cert['issuing_organization'] ?? 'Accredited Organization',
+                        'name' => $nameSafe,
+                        'issuing_organization' => $issuerSafe,
                         'issue_date' => $this->parseDate($cert['issue_date'] ?? null),
                         'expiry_date' => $this->parseDate($cert['expiry_date'] ?? null),
-                        'credential_id' => $cert['credential_id'] ?? null,
-                        'credential_url' => $cert['credential_url'] ?? null,
-                        'description' => $cert['description'] ?? null,
+                        'credential_id' => $credentialIdSafe,
+                        'credential_url' => $credentialUrlSafe,
+                        'description' => !empty($cert['description']) ? trim((string)$cert['description']) : null,
                     ]);
                     $addedCertCount++;
                 }
+            } catch (\Throwable $e) {
+                Log::warning('Failed to insert resume certification', ['error' => $e->getMessage()]);
             }
+        }
 
-            return [
-                'skills_added' => $addedSkillsCount,
-                'experiences_added' => $addedExpCount,
-                'education_added' => $addedEduCount,
-                'certifications_added' => $addedCertCount,
-            ];
-        });
+        return [
+            'skills_added' => $addedSkillsCount,
+            'experiences_added' => $addedExpCount,
+            'education_added' => $addedEduCount,
+            'certifications_added' => $addedCertCount,
+        ];
     }
 
     /**
@@ -268,7 +333,13 @@ Return ONLY a valid JSON object with this format:
 }
 INSTRUCTIONS;
 
-        if (!empty($imageBase64)) {
+        if (strlen(trim($text)) >= 50) {
+            $userContent = $instructions . "\n\nResume Text:\n\"\"\"\n{$text}\n\"\"\"";
+            $messages = [
+                ['role' => 'system', 'content' => 'You are a professional ATS resume parsing engine that extracts resume text into standardized JSON.'],
+                ['role' => 'user', 'content' => $userContent],
+            ];
+        } elseif (!empty($imageBase64)) {
             $messages = [
                 ['role' => 'system', 'content' => 'You are a professional ATS resume parsing engine that extracts resume documents into standardized JSON.'],
                 [
@@ -280,15 +351,19 @@ INSTRUCTIONS;
                 ],
             ];
         } else {
-            $userContent = $instructions . "\n\nResume Text:\n\"\"\"\n{$text}\n\"\"\"";
-            $messages = [
-                ['role' => 'system', 'content' => 'You are a professional ATS resume parsing engine that extracts resume text into standardized JSON.'],
-                ['role' => 'user', 'content' => $userContent],
-            ];
+            return null;
         }
 
         $response = $this->aiClient->chat($messages);
         if (!$response) return null;
+
+        // Try extracting JSON bounded by braces first
+        if (preg_match('/\{[\s\S]*\}/', $response, $matches)) {
+            $decoded = json_decode($matches[0], true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
 
         $cleanJson = preg_replace('/^```(?:json)?\s*/i', '', trim($response));
         $cleanJson = preg_replace('/\s*```$/', '', $cleanJson);
@@ -398,7 +473,7 @@ INSTRUCTIONS;
             if (preg_match('/\b' . preg_quote($skill, '/') . '\b/i', $text)) {
                 $matched[] = [
                     'skill' => $skill,
-                    'proficiency' => 'Intermediate',
+                    'proficiency' => 'intermediate',
                     'years_of_experience' => 2,
                 ];
             }
@@ -549,27 +624,32 @@ INSTRUCTIONS;
         $summary = $personal['summary'] ?? ($data['summary'] ?? '');
 
         // 6. Skills
-        $rawSkills = $data['skills'] ?? [];
+        $rawSkills = is_array($data['skills'] ?? null) ? $data['skills'] : [];
         $skills = [];
         foreach ($rawSkills as $s) {
             if (is_string($s)) {
-                $skills[] = [
-                    'skill' => trim($s),
-                    'proficiency' => 'Intermediate',
-                    'years_of_experience' => 2,
-                ];
-            } elseif (is_array($s) && !empty($s['skill'])) {
-                $skills[] = [
-                    'skill' => trim($s['skill']),
-                    'proficiency' => $s['proficiency'] ?? 'Intermediate',
-                    'years_of_experience' => $s['years_of_experience'] ?? 2,
-                ];
-            } elseif (is_array($s) && !empty($s['name'])) {
-                $skills[] = [
-                    'skill' => trim($s['name']),
-                    'proficiency' => $s['proficiency'] ?? 'Intermediate',
-                    'years_of_experience' => $s['years_of_experience'] ?? 2,
-                ];
+                $name = trim($s);
+                if (!empty($name)) {
+                    $skills[] = [
+                        'skill' => $name,
+                        'proficiency' => 'intermediate',
+                        'years_of_experience' => 2,
+                    ];
+                }
+            } elseif (is_array($s) && (!empty($s['skill']) || !empty($s['name']))) {
+                $name = trim((string)($s['skill'] ?? $s['name']));
+                if (!empty($name)) {
+                    $rawProf = strtolower(trim((string)($s['proficiency'] ?? 'intermediate')));
+                    $validProf = in_array($rawProf, ['beginner', 'intermediate', 'advanced', 'expert'], true) ? $rawProf : 'intermediate';
+                    $rawYoe = $s['years_of_experience'] ?? 2;
+                    $yoe = is_numeric($rawYoe) ? max(0, (int)$rawYoe) : 2;
+
+                    $skills[] = [
+                        'skill' => $name,
+                        'proficiency' => $validProf,
+                        'years_of_experience' => $yoe,
+                    ];
+                }
             }
         }
 
@@ -690,19 +770,32 @@ INSTRUCTIONS;
     /**
      * Safe date parser helper.
      */
-    protected function parseDate(?string $dateStr): ?string
+    protected function parseDate(mixed $dateStr): ?string
     {
         if (empty($dateStr)) return null;
 
         try {
-            $dateStr = trim($dateStr);
+            $dateStr = trim((string)$dateStr);
+            if (empty($dateStr)) return null;
+
+            // Handle pure 4-digit year like "2020"
             if (preg_match('/^\d{4}$/', $dateStr)) {
                 return $dateStr . '-01-01';
             }
-            if (preg_match('/^\d{4}-\d{2}$/', $dateStr)) {
-                return $dateStr . '-01';
+            // Handle year-month like "2020-05" or "2020/05"
+            if (preg_match('/^(\d{4})[-\/](\d{1,2})$/', $dateStr, $m)) {
+                return sprintf('%04d-%02d-01', (int)$m[1], (int)$m[2]);
             }
-            return \Carbon\Carbon::parse($dateStr)->format('Y-m-d');
+            // Ignore ongoing / current keywords
+            if (preg_match('/\b(present|current|now|ongoing)\b/i', $dateStr)) {
+                return null;
+            }
+
+            $parsed = \Carbon\Carbon::parse($dateStr);
+            if ($parsed->year < 1900 || $parsed->year > 2100) {
+                return null;
+            }
+            return $parsed->format('Y-m-d');
         } catch (\Throwable $e) {
             return null;
         }

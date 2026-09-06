@@ -594,7 +594,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .then(async response => {
-                const data = await response.json();
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonErr) {
+                    throw new Error('Server responded with an unexpected error (' + response.status + '). Please ensure the file is a valid PDF or DOCX document.');
+                }
                 if (!response.ok || !data.success) {
                     throw new Error(data.message || 'Failed to parse resume.');
                 }
@@ -620,6 +625,7 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch(error => {
                 overlay.classList.add('hidden');
+                if (resumeInput) resumeInput.value = '';
                 alert(error.message || 'An error occurred while parsing your resume. Please try again or fill in manually.');
             });
         });

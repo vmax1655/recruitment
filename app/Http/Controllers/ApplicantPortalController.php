@@ -14,6 +14,7 @@ use App\Models\OfferLetter;
 use App\Models\UploadedDocument;
 use App\Services\ActivityLogService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class ApplicantPortalController extends Controller
@@ -70,65 +71,98 @@ class ApplicantPortalController extends Controller
 
     public function parseAndAutoFillResume(Request $request)
     {
-        $request->validate([
-            'resume_file' => 'required|file|mimes:pdf,docx,doc,txt|max:5120',
-        ]);
-
-        $applicant = $this->getOrCreateApplicant();
-        $file = $request->file('resume_file');
-
-        // Parse file with ResumeParserService
-        $parser = app(\App\Services\ResumeParserService::class);
-        $result = $parser->parse($file);
-
-        if (!$result['success']) {
-            if ($request->wantsJson() || $request->ajax()) {
-                return response()->json(['success' => false, 'message' => $result['message']], 422);
-            }
-            return back()->with('error', $result['message']);
-        }
-
-        // Save resume file to storage as active Master Resume
-        if ($applicant->resume_path) {
-            Storage::disk('public')->delete($applicant->resume_path);
-        }
-        $savedPath = $file->store('resumes/' . $applicant->id, 'public');
-
-        // Apply parsed data to database
-        $stats = $parser->applyToProfile($applicant, $result['data'], $savedPath);
-
-        $summaryParts = [];
-        if (!empty($result['data']['personal']['first_name']) || !empty($result['data']['personal']['last_name'])) {
-            $summaryParts[] = 'Personal info';
-        }
-        if ($stats['skills_added'] > 0) {
-            $summaryParts[] = "{$stats['skills_added']} skill(s)";
-        }
-        if ($stats['experiences_added'] > 0) {
-            $summaryParts[] = "{$stats['experiences_added']} work experience(s)";
-        }
-        if ($stats['education_added'] > 0) {
-            $summaryParts[] = "{$stats['education_added']} education record(s)";
-        }
-        if ($stats['certifications_added'] > 0) {
-            $summaryParts[] = "{$stats['certifications_added']} certification(s)";
-        }
-
-        $summaryMsg = !empty($summaryParts)
-            ? 'Extracted and auto-filled: ' . implode(', ', $summaryParts) . '.'
-            : 'Resume uploaded and parsed.';
-
-        if ($request->wantsJson() || $request->ajax()) {
-            return response()->json([
-                'success' => true,
-                'message' => "✨ AI Auto-Fill Complete! {$summaryMsg}",
-                'stats' => $stats,
-                'parsed_data' => $result['data'],
-                'parsed_with' => $result['parsed_with'],
+        try {
+            $request->validate([
+                'resume_file' => 'required|file|mimes:pdf,docx,doc,txt|max:10240',
             ]);
-        }
 
-        return back()->with('success', "✨ AI Auto-Fill Complete! {$summaryMsg}");
+            $applicant = $this->getOrCreateApplicant();
+            $file = $request->file('resume_file');
+
+            if (!$file || !$file->isValid()) {
+                $msg = 'Invalid file uploaded. Please ensure the file is not corrupted and is under the upload limit.';
+                if ($request->wantsJson() || $request->ajax()) {
+                    return response()->json(['success' => false, 'message' => $msg], 422);
+                }
+                return back()->with('error', $msg);
+            }
+
+            // Parse file with ResumeParserService
+            $parser = app(\App\Services\ResumeParserService::class);
+            $result = $parser->parse($file);
+
+            if (!$result['success']) {
+                if ($request->wantsJson() || $request->ajax()) {
+                    return response()->json(['success' => false, 'message' => $result['message']], 422);
+                }
+                return back()->with('error', $result['message']);
+            }
+
+            // Save resume file to storage as active Master Resume
+            $savedPath = null;
+            try {
+                if ($applicant->resume_path) {
+                    Storage::disk('public')->delete($applicant->resume_path);
+                }
+                $savedPath = $file->store('resumes/' . $applicant->id, 'public');
+            } catch (\Throwable $e) {
+                Log::warning('Failed to store resume file to public storage', ['error' => $e->getMessage()]);
+            }
+
+            // Apply parsed data to database
+            $stats = $parser->applyToProfile($applicant, $result['data'], $savedPath);
+
+            $summaryParts = [];
+            if (!empty($result['data']['personal']['first_name']) || !empty($result['data']['personal']['last_name'])) {
+                $summaryParts[] = 'Personal info';
+            }
+            if (($stats['skills_added'] ?? 0) > 0) {
+                $summaryParts[] = "{$stats['skills_added']} skill(s)";
+            }
+            if (($stats['experiences_added'] ?? 0) > 0) {
+                $summaryParts[] = "{$stats['experiences_added']} work experience(s)";
+            }
+            if (($stats['education_added'] ?? 0) > 0) {
+                $summaryParts[] = "{$stats['education_added']} education record(s)";
+            }
+            if (($stats['certifications_added'] ?? 0) > 0) {
+                $summaryParts[] = "{$stats['certifications_added']} certification(s)";
+            }
+
+            $summaryMsg = !empty($summaryParts)
+                ? 'Extracted and auto-filled: ' . implode(', ', $summaryParts) . '.'
+                : 'Resume uploaded and parsed successfully.';
+
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => "✨ AI Auto-Fill Complete! {$summaryMsg}",
+                    'stats' => $stats,
+                    'parsed_data' => $result['data'],
+                    'parsed_with' => $result['parsed_with'] ?? 'heuristic',
+                ]);
+            }
+
+            return back()->with('success', "✨ AI Auto-Fill Complete! {$summaryMsg}");
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $msg = collect($e->errors())->flatten()->first() ?: 'Validation failed on the uploaded file.';
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+            return back()->with('error', $msg);
+        } catch (\Throwable $e) {
+            Log::error('Resume parsing failed', [
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            $friendlyMsg = 'An error occurred while parsing the resume: ' . $e->getMessage();
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $friendlyMsg], 500);
+            }
+            return back()->with('error', $friendlyMsg);
+        }
     }
 
     public function jobs(Request $request)
@@ -401,11 +435,15 @@ public function markNotificationRead(NotificationRecord $notification)
         $applicant = $this->getOrCreateApplicant();
         $data = $request->validate([
             'skill' => 'required|string|max:255',
-            'proficiency' => 'nullable|string|in:Beginner,Intermediate,Advanced,Expert',
+            'proficiency' => 'nullable|string|in:Beginner,Intermediate,Advanced,Expert,beginner,intermediate,advanced,expert',
             'years_of_experience' => 'nullable|integer|min:0|max:50',
         ]);
 
-        $applicant->skills()->create($data);
+        $applicant->skills()->create([
+            'skill' => $data['skill'],
+            'proficiency' => $data['proficiency'] ?? 'intermediate',
+            'years_of_experience' => $data['years_of_experience'] ?? 0,
+        ]);
         return back()->with('success', 'Skill added successfully.');
     }
 
