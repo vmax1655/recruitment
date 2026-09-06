@@ -56,35 +56,35 @@
         <div class="info-grid">
             <div class="info-field">
                 <div class="info-field-label">First Name</div>
-                <div class="info-field-value">{{ $profile->first_name ?: '<span class="info-field-empty">Not set</span>' }}</div>
+                <div class="info-field-value">{!! $profile->first_name ? e($profile->first_name) : '<span class="info-field-empty">Not set</span>' !!}</div>
             </div>
             <div class="info-field">
                 <div class="info-field-label">Last Name</div>
-                <div class="info-field-value">{{ $profile->last_name ?: '<span class="info-field-empty">Not set</span>' }}</div>
+                <div class="info-field-value">{!! $profile->last_name ? e($profile->last_name) : '<span class="info-field-empty">Not set</span>' !!}</div>
             </div>
             <div class="info-field">
                 <div class="info-field-label">Email</div>
-                <div class="info-field-value">{{ $profile->email ?: '<span class="info-field-empty">Not set</span>' }}</div>
+                <div class="info-field-value">{!! $profile->email ? e($profile->email) : '<span class="info-field-empty">Not set</span>' !!}</div>
             </div>
             <div class="info-field">
                 <div class="info-field-label">Phone</div>
-                <div class="info-field-value">{{ $profile->phone ?: '<span class="info-field-empty">Not set</span>' }}</div>
+                <div class="info-field-value">{!! $profile->phone ? e($profile->phone) : '<span class="info-field-empty">Not set</span>' !!}</div>
             </div>
             <div class="info-field">
                 <div class="info-field-label">Date of Birth</div>
-                <div class="info-field-value">{{ $profile->date_of_birth ? $profile->date_of_birth->format('M d, Y') : '<span class="info-field-empty">Not set</span>' }}</div>
+                <div class="info-field-value">{!! $profile->date_of_birth ? e($profile->date_of_birth->format('M d, Y')) : '<span class="info-field-empty">Not set</span>' !!}</div>
             </div>
             <div class="info-field">
                 <div class="info-field-label">Gender</div>
-                <div class="info-field-value">{{ $profile->gender ? ucfirst($profile->gender) : '<span class="info-field-empty">Not set</span>' }}</div>
+                <div class="info-field-value">{!! $profile->gender ? e(ucfirst($profile->gender)) : '<span class="info-field-empty">Not set</span>' !!}</div>
             </div>
             <div class="info-field">
                 <div class="info-field-label">Nationality</div>
-                <div class="info-field-value">{{ $profile->nationality ?: '<span class="info-field-empty">Not set</span>' }}</div>
+                <div class="info-field-value">{!! $profile->nationality ? e($profile->nationality) : '<span class="info-field-empty">Not set</span>' !!}</div>
             </div>
             <div class="info-field">
                 <div class="info-field-label">Address</div>
-                <div class="info-field-value">{{ $profile->address ? $profile->address . ($profile->city ? ', ' . $profile->city : '') : '<span class="info-field-empty">Not set</span>' }}</div>
+                <div class="info-field-value">{!! $profile->address ? e($profile->address . ($profile->city ? ', ' . $profile->city : '')) : '<span class="info-field-empty">Not set</span>' !!}</div>
             </div>
         </div>
     </div>
@@ -98,15 +98,15 @@
         <div class="info-grid">
             <div class="info-field">
                 <div class="info-field-label">Employee ID</div>
-                <div class="info-field-value">{{ $profile->employee_id ?: '<span class="info-field-empty">Not assigned</span>' }}</div>
+                <div class="info-field-value">{!! $profile->employee_id ? e($profile->employee_id) : '<span class="info-field-empty">Not assigned</span>' !!}</div>
             </div>
             <div class="info-field">
                 <div class="info-field-label">Department</div>
-                <div class="info-field-value">{{ $profile->department ? $profile->department->name : '<span class="info-field-empty">Not assigned</span>' }}</div>
+                <div class="info-field-value">{!! $profile->department ? e($profile->department->name) : '<span class="info-field-empty">Not assigned</span>' !!}</div>
             </div>
             <div class="info-field">
                 <div class="info-field-label">Job Position</div>
-                <div class="info-field-value">{{ $profile->jobPosition ? $profile->jobPosition->title : '<span class="info-field-empty">Not assigned</span>' }}</div>
+                <div class="info-field-value">{!! $profile->jobPosition ? e($profile->jobPosition->title) : '<span class="info-field-empty">Not assigned</span>' !!}</div>
             </div>
             <div class="info-field">
                 <div class="info-field-label">Employment Status</div>
@@ -117,7 +117,7 @@
             </div>
             <div class="info-field">
                 <div class="info-field-label">Hire Date</div>
-                <div class="info-field-value">{{ $profile->hire_date ? $profile->hire_date->format('M d, Y') : '<span class="info-field-empty">Not set</span>' }}</div>
+                <div class="info-field-value">{!! $profile->hire_date ? e($profile->hire_date->format('M d, Y')) : '<span class="info-field-empty">Not set</span>' !!}</div>
             </div>
             @if($profile->regularization_date)
             <div class="info-field">
