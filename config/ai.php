@@ -10,10 +10,10 @@ return [
 
     'provider' => env('AI_PROVIDER', 'openrouter'),
 
-'openrouter' => [
-        'base_url' => env('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1'),
-        'api_key' => env('OPENROUTER_API_KEY'),
-        'model' => env('AI_MODEL', 'openai/gpt-4o-mini'),
+    'openrouter' => [
+        'base_url' => env('OPENROUTER_BASE_URL', env('AI_BASE_URL', 'https://openrouter.ai/api/v1')),
+        'api_key' => env('OPENROUTER_API_KEY', env('AI_API_KEY', env('OPENAI_API_KEY'))),
+        'model' => env('AI_MODEL', env('OPENROUTER_MODEL', 'openai/gpt-4o-mini')),
         'timeout' => env('AI_TIMEOUT', 120),
     ],
 

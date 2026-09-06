@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y \
     libicu-dev \
     libonig-dev \
     libxml2-dev \
+    poppler-utils \
     && docker-php-ext-install \
     pdo_mysql \
     pdo_pgsql \

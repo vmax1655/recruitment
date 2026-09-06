@@ -278,6 +278,12 @@ class ResumeParserService
         $instructions = <<<INSTRUCTIONS
 You are an expert AI Resume Parser & ATS System. Analyze the provided resume document and extract all candidate information into the exact JSON structure below.
 
+IMPORTANT RULES:
+- Output clean, readable standard English.
+- If any text in the resume document appears encoded, shifted (such as Caesar-shifted characters), or has font substitution artifacts (e.g. 'KHOOR' for 'HELLO', or font indices), decipher the intended words and output proper English candidate information.
+- The candidate's first_name and last_name must be their actual personal name (e.g. "Bailey Dupont"), NOT greetings, font artifacts, or company names.
+- Extract comprehensive work history, education, skills, and certifications found in the resume.
+
 Return ONLY a valid JSON object with this format:
 {
   "personal": {
@@ -409,14 +415,22 @@ INSTRUCTIONS;
         $firstName = 'Candidate';
         $lastName = '';
 
-        for ($i = 0; $i < min(5, count($lines)); $i++) {
-            $line = $lines[$i];
-            if (str_contains($line, '@') || preg_match('/\d{4}/', $line)) continue;
-            if (strlen($line) >= 3 && strlen($line) <= 50 && !preg_match('/(resume|curriculum|cv|profile|contact)/i', $line)) {
-                $parts = explode(' ', $line, 2);
-                $firstName = $parts[0];
-                $lastName = $parts[1] ?? '';
-                break;
+        for ($i = 0; $i < min(8, count($lines)); $i++) {
+            $line = trim($lines[$i]);
+            if (str_contains($line, '@') || preg_match('/\d{4}/', $line) || preg_match('/http/i', $line)) continue;
+            if (preg_match('/\b(resume|curriculum|cv|profile|contact|hello|welcome|summary|phone|email|about|page)\b/i', $line)) continue;
+
+            // Clean symbols
+            $cleanLine = preg_replace('/[^a-zA-Z\s\-\.\']/', ' ', $line);
+            $cleanLine = trim(preg_replace('/\s+/', ' ', $cleanLine));
+
+            if (strlen($cleanLine) >= 3 && strlen($cleanLine) <= 60 && preg_match('/[a-zA-Z]{2,}/', $cleanLine)) {
+                $parts = explode(' ', $cleanLine, 2);
+                if (strlen($parts[0]) >= 2) {
+                    $firstName = ucfirst(strtolower($parts[0]));
+                    $lastName = isset($parts[1]) ? ucwords(strtolower($parts[1])) : '';
+                    break;
+                }
             }
         }
 
